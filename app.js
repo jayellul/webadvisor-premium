@@ -5,14 +5,18 @@ const wait = require('waait')
 
 // Time between each check in ms
 const msBetweenChecks = 60000
+// Webadvisor course variables
+const courseSemester = 'F20'
+const courseSubject = 'CIS'
+const courseCode = 3260
 // Warning - recursion
 checkWebadvisor()
 
 async function checkWebadvisor() {
   // Headful
-  // const browser = await puppeteer.launch({ headless: false })
+  const browser = await puppeteer.launch({ headless: false })
   // Headless
-  const browser = await puppeteer.launch()
+  // const browser = await puppeteer.launch()
   const page = await browser.newPage()
 
   page.on('console', (msg) => console.log('PAGE LOG:', msg.text()))
@@ -32,12 +36,12 @@ async function checkWebadvisor() {
 
   // Fill out Search for Sections
   await Promise.all([
-    page.select('#VAR1', 'F20'),
-    page.select('#LIST_VAR1_1', 'CIS'),
-    page.evaluate(() => {
-      const courseCode = document.querySelector('#LIST_VAR3_1')
-      courseCode.value = 3260
-    }),
+    page.select('#VAR1', courseSemester),
+    page.select('#LIST_VAR1_1', courseSubject),
+    page.evaluate(function (courseCode) {
+      const courseCodeInput = document.querySelector('#LIST_VAR3_1')
+      courseCodeInput.value = courseCode
+    }, courseCode),
   ])
 
   await Promise.all([
@@ -45,24 +49,26 @@ async function checkWebadvisor() {
     page.waitForNavigation({ waitUntil: 'networkidle0' }),
   ])
 
-  // Determine if offering is open
-  let open = false
-  await page.evaluate(() => {
+  // Determine if offering is open - evaluated in browser
+  const open = await page.evaluate(() => {
+    let open = false
     const offerings = document.querySelectorAll('#GROUP_Grp_WSS_COURSE_SECTIONS > table > tbody > tr')
     offerings.forEach((row, index) => {
       // First two rows are just headings
       if (index < 2) return
       // Look for a course row that doesn't have the closed styles
-      if (row.className !== 'closed') open = true
+      if (!row.className && row.className !== 'closed') open = true
     })
+    return open
   })
 
   const now = new Date()
   console.log(`\nTIME: ${now.getHours()}:${now.getMinutes()}`)
+  const output = `${courseSemester}, ${courseSubject} * ${courseCode}`
   if (open) {
-    console.log('\x1b[32m', '\nDESIGN 4 IS OPEN')
+    console.log('\x1b[32m', `\n${output} IS OPEN`)
   } else {
-    console.log('\x1b[31m', '\nDESIGN 4 IS NOT OPEN')
+    console.log('\x1b[31m', `\n${output} IS NOT OPEN`)
   }
 
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
