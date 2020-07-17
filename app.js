@@ -68,7 +68,7 @@ async function checkWebadvisor() {
       // First two rows are just headings
       if (index < 2) return
       // Look for a course row that doesn't have the closed styles
-      if (!row.className && row.className !== 'closed') open = true
+      if (row.className !== 'closed') open = true
     })
     return open
   })
