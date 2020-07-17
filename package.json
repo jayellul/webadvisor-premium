@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "npx nodemon --exec babel-node app.js"
+    "start": "npx babel-node app.js",
+    "develop": "npx nodemon --exec babel-node app.js"
   },
   "author": "Jay Ellul",
   "license": "ISC",

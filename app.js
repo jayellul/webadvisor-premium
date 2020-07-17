@@ -10,8 +10,14 @@ const msBetweenChecks = 60000
 const courseSemester = 'F20'
 const courseSubject = 'CIS'
 const courseCode = 3260
-// Warning - recursion
-checkWebadvisor()
+// Start daemon
+start()
+
+async function start() {
+  while (true) {
+    await checkWebadvisor()
+  }
+}
 
 async function checkWebadvisor() {
   // Headful
@@ -77,5 +83,4 @@ async function checkWebadvisor() {
   await browser.close()
   // Wait and then check again
   await wait(msBetweenChecks)
-  checkWebadvisor()
 }
