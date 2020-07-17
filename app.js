@@ -14,7 +14,7 @@ checkWebadvisor()
 
 async function checkWebadvisor() {
   // Headful
-  const browser = await puppeteer.launch({ headless: false })
+  const browser = await puppeteer.launch()
   // Headless
   // const browser = await puppeteer.launch()
   const page = await browser.newPage()
