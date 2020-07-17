@@ -5,13 +5,21 @@ const puppeteer = require('puppeteer')
 const wait = require('waait')
 
 // Time between each check in ms
-const msBetweenChecks = 60000
+const msBetweenChecks = 6000
 // Webadvisor course variables
 const courseSemester = 'F20'
 const courseSubject = 'CIS'
 const courseCode = 3260
-// Warning - recursion
-checkWebadvisor()
+// Warning - infinite loop
+start()
+
+async function start() {
+  while (1) {
+    await checkWebadvisor()
+    // Wait and then check again
+    await wait(msBetweenChecks)
+  }
+}
 
 async function checkWebadvisor() {
   // Headful
@@ -75,7 +83,4 @@ async function checkWebadvisor() {
 
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
-  // Wait and then check again
-  await wait(msBetweenChecks)
-  checkWebadvisor()
 }
