@@ -60,12 +60,12 @@ async function checkWebadvisor() {
   const now = new Date()
   console.log(`\nTIME: ${now.getHours()}:${now.getMinutes()}`)
   if (open) {
-    console.log('\nDESIGN 4 IS OPEN')
+    console.log('\x1b[32m', '\nDESIGN 4 IS OPEN')
   } else {
-    console.log('\nDESIGN 4 IS NOT OPEN')
+    console.log('\x1b[31m', '\nDESIGN 4 IS NOT OPEN')
   }
 
-  console.log('\nAYO, THREAD CHECK\n')
+  console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
   // Wait and then check again
   await wait(msBetweenChecks)
