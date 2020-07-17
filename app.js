@@ -5,7 +5,7 @@ const puppeteer = require('puppeteer')
 const wait = require('waait')
 
 // Time between each check in ms
-const msBetweenChecks = 6000
+const msBetweenChecks = 60000
 // Webadvisor course variables
 const courseSemester = 'F20'
 const courseSubject = 'CIS'
