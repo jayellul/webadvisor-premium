@@ -10,16 +10,8 @@ const msBetweenChecks = 60000
 const courseSemester = 'F20'
 const courseSubject = 'CIS'
 const courseCode = 3260
-// Warning - infinite loop
-start()
-
-async function start() {
-  while (1) {
-    await checkWebadvisor()
-    // Wait and then check again
-    await wait(msBetweenChecks)
-  }
-}
+// Warning - recursion
+checkWebadvisor()
 
 async function checkWebadvisor() {
   // Headful
@@ -83,4 +75,7 @@ async function checkWebadvisor() {
 
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
+  // Wait and then check again
+  await wait(msBetweenChecks)
+  checkWebadvisor()
 }
