@@ -1,5 +1,6 @@
 // app.js
 
+const { exec } = require('child_process')
 const puppeteer = require('puppeteer')
 const wait = require('waait')
 
@@ -66,6 +67,7 @@ async function checkWebadvisor() {
   console.log(`\nTIME: ${now.getHours()}:${now.getMinutes()}`)
   const output = `${courseSemester}, ${courseSubject} * ${courseCode}`
   if (open) {
+    exec(`say "${output} is open"`)
     console.log('\x1b[32m', `\n${output} IS OPEN`)
   } else {
     console.log('\x1b[31m', `\n${output} IS NOT OPEN`)
