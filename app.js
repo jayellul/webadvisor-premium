@@ -3,6 +3,11 @@
 const { exec } = require('child_process')
 const puppeteer = require('puppeteer')
 const wait = require('waait')
+const nodemailer = require("nodemailer");
+const fs = require('fs')
+
+// Reads a .env file
+require('dotenv').config();
 
 // Time between each check in ms
 const msBetweenChecks = 0
@@ -22,7 +27,11 @@ start()
 async function start() {
   while (true) {
     try {
-      await checkWebadvisor()
+      let availableCourseInfo = await checkWebadvisor()
+
+      sendEmail(availableCourseInfo)
+
+      await wait(msBetweenChecks)
     } catch (error) {
       console.log(error)
     }
@@ -125,6 +134,55 @@ async function checkWebadvisor() {
 
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
-  // Wait and then check again
-  await wait(msBetweenChecks)
+
+  return availableCourseInfo
+}
+
+async function sendEmail(courseMap) {  
+  const EMAIL_SERVICE = process.env.EMAIL_SERVICE
+  const EMAIL_ADDR = process.env.EMAIL_ADDR
+  const EMAIL_PWD = process.env.EMAIL_PWD
+  const RECIPIENTS = process.env.RECIPIENTS
+
+  if (!EMAIL_SERVICE || !EMAIL_ADDR || !EMAIL_PWD || !RECIPIENTS) {
+    console.warn('Email sending is not enabled. To enable email sending please set the EMAIL_SERVICE, EMAIL_ADDR, EMAIL_PWD, and RECIPIENTS env variables')
+    return
+  }
+
+  var transporter = nodemailer.createTransport({
+    service: EMAIL_SERVICE,
+    auth: {
+      user: EMAIL_ADDR,
+      pass: EMAIL_PWD
+    }
+  });  
+  
+  let courseDetailsHTML = ''
+
+  Object.entries(courseMap).forEach(([courseCode, details]) => {
+    courseDetailsHTML += formatCourseInfoHTML(courseCode, details)
+  })
+
+  if (!courseDetailsHTML) {
+    console.log('No courses were available so no email was sent')
+    return
+  }
+
+  let info = await transporter.sendMail({
+    from: EMAIL_ADDR, 
+    to: RECIPIENTS.split(','), 
+    subject: 'Your course selection info', 
+    html: fs.readFileSync(__dirname + '/templates/coursesAvailableEmail.html', 'utf8').replace('${INSERT_INFO_HERE}', courseDetailsHTML),
+  });
+
+  console.info('emails sent to', info.accepted)
+  console.info('emails did not send to', info.rejected)
+}
+
+function formatCourseInfoHTML(courseCode, courseInfo) {
+  if (courseInfo.length) {
+    return `<p><b>${courseCode}</b> has sections available</p> <p>${courseInfo}</p> <br>`
+  }
+
+  return ''
 }
