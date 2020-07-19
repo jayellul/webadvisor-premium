@@ -27,7 +27,7 @@ start()
 async function start() {
   while (true) {
     try {
-      let availableCourseInfo = await checkWebadvisor()
+      const availableCourseInfo = await checkWebadvisor()
 
       sendEmail(availableCourseInfo)
 
@@ -149,7 +149,7 @@ async function sendEmail(courseMap) {
     return
   }
 
-  var transporter = nodemailer.createTransport({
+  const transporter = nodemailer.createTransport({
     service: EMAIL_SERVICE,
     auth: {
       user: EMAIL_ADDR,
@@ -164,11 +164,11 @@ async function sendEmail(courseMap) {
   })
 
   if (!courseDetailsHTML) {
-    console.log('No courses were available so no email was sent')
+    console.warn('No courses were available so no email was sent')
     return
   }
 
-  let info = await transporter.sendMail({
+  const info = await transporter.sendMail({
     from: EMAIL_ADDR, 
     to: RECIPIENTS.split(','), 
     subject: 'Your course selection info', 
