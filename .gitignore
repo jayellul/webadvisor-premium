@@ -1,1 +1,5 @@
 node_modules
+
+# Ignores all .env files except the example env
+.env*
+!.env.example
