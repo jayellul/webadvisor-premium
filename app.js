@@ -5,9 +5,15 @@ const puppeteer = require('puppeteer')
 const wait = require('waait')
 const nodemailer = require("nodemailer");
 const fs = require('fs')
+const express = require('express')
+const bodyParser = require('body-parser');
+const _ = require('lodash')
+const { check, validationResult, matchedData } = require('express-validator');
 
 // Reads a .env file
 require('dotenv').config();
+
+const app = express()
 
 // Time between each check in ms
 const msBetweenChecks = 0
@@ -15,21 +21,53 @@ const msBetweenChecks = 0
 // Webadvisor course variables
 const courseSemester = 'F20'
 
-// max 5 courses
-const courses = ['CIS*3260', 'UNIV*2100', 'CIS*1250']
-
 // Headless?
 const headless = true
 
-// Start daemon
-start()
+const PORT = 3000
 
-async function start() {
+app.use(bodyParser.urlencoded({ extended: false }))
+
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/templates/inputForm.html')
+})
+
+app.post('/subscribe', [
+  // validates the courses array has a non-empty field and returns an escaped and trimmed version of each value
+  check('courses').isArray().custom(courses => {
+    return courses.some(c => c)
+  }).withMessage('At least one course must be selected').bail().customSanitizer(courses => {
+    return courses.map(c => _.trim(_.escape(c)))
+  }),
+
+  // validates and normalizes the email from the client
+  // For details on the email normalization see the normalizeEmail at https://github.com/validatorjs/validator.js#sanitizers
+  check('email').isEmail().withMessage('Invalid Email').bail().trim().normalizeEmail(),
+], (req, res) => {
+  const formErrors = validationResult(req);
+
+  if (!formErrors.isEmpty()) {
+    console.error('formErrors', formErrors)
+    return res.status(400).send(`formErrors -- ${JSON.stringify(formErrors)}`)
+  }
+  
+  // Ensures the app only uses data that has been validated
+  let validatedData = matchedData(req)
+
+  // start an instance of the service
+  start(validatedData.courses, validatedData.email)
+  return res.send('started a new process')
+})
+
+app.listen(PORT);
+
+
+async function start(courses, recipients) {
   while (true) {
     try {
-      const availableCourseInfo = await checkWebadvisor()
+      const availableCourseInfo = await checkWebadvisor(courses)
 
-      sendEmail(availableCourseInfo)
+      sendEmail(availableCourseInfo, recipients)
 
       await wait(msBetweenChecks)
     } catch (error) {
@@ -38,7 +76,7 @@ async function start() {
   }
 }
 
-async function checkWebadvisor() {
+async function checkWebadvisor(courses) {
   const browser = await puppeteer.launch({ headless })
 
   const page = await browser.newPage()
@@ -138,13 +176,12 @@ async function checkWebadvisor() {
   return availableCourseInfo
 }
 
-async function sendEmail(courseMap) {  
+async function sendEmail(courseMap, recipients) {  
   const EMAIL_SERVICE = process.env.EMAIL_SERVICE
   const EMAIL_ADDR = process.env.EMAIL_ADDR
   const EMAIL_PWD = process.env.EMAIL_PWD
-  const RECIPIENTS = process.env.RECIPIENTS
 
-  if (!EMAIL_SERVICE || !EMAIL_ADDR || !EMAIL_PWD || !RECIPIENTS) {
+  if (!EMAIL_SERVICE || !EMAIL_ADDR || !EMAIL_PWD || !recipients) {
     console.warn('Email sending is not enabled. To enable email sending please set the EMAIL_SERVICE, EMAIL_ADDR, EMAIL_PWD, and RECIPIENTS env variables')
     return
   }
@@ -170,7 +207,7 @@ async function sendEmail(courseMap) {
 
   const info = await transporter.sendMail({
     from: EMAIL_ADDR, 
-    to: RECIPIENTS.split(','), 
+    to: recipients, 
     subject: 'Your course selection info', 
     html: fs.readFileSync(__dirname + '/templates/coursesAvailableEmail.html', 'utf8').replace('${INSERT_INFO_HERE}', courseDetailsHTML),
   });
