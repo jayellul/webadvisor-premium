@@ -52,7 +52,7 @@ app.post('/subscribe', [
   }
   
   // Ensures the app only uses data that has been validated
-  let validatedData = matchedData(req)
+  const validatedData = matchedData(req)
 
   // start an instance of the service
   start(validatedData.courses, validatedData.email)
@@ -182,7 +182,7 @@ async function sendEmail(courseMap, recipients) {
   const EMAIL_PWD = process.env.EMAIL_PWD
 
   if (!EMAIL_SERVICE || !EMAIL_ADDR || !EMAIL_PWD || !recipients) {
-    console.warn('Email sending is not enabled. To enable email sending please set the EMAIL_SERVICE, EMAIL_ADDR, EMAIL_PWD, and RECIPIENTS env variables')
+    console.warn('Email sending is not enabled. To enable email sending please set the EMAIL_SERVICE, EMAIL_ADDR and EMAIL_PWD env variables')
     return
   }
 
