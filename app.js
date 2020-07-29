@@ -96,12 +96,8 @@ async function updateCourseInfo(courses) {
   while (true) {
     try {
       const availableCourseInfo = await checkWebadvisor(courses)
-
-      let courseKeys = []
-      Object.keys(availableCourseInfo).forEach((courseKey) => {
-        courseKeys.push(courseKey)
-      })
-
+      
+      const courseKeys = Object.keys(availableCourseInfo)
       const courseCodeEmailMap = await getEmailsCourseCodesFromDyanmo(courseKeys)
 
       await sendEmail(availableCourseInfo, courseCodeEmailMap)
@@ -249,52 +245,45 @@ async function sendEmail(courseMap, courseCodeEmailMap) {
     }
   })
 
-  let emailPromises = []
-  Object.entries(courseCodeEmailMap).forEach(([courseCode, emails], i) => {
+  await Promise.all(Object.entries(courseCodeEmailMap).map(async ([courseCode, emails], i) => {
+    if (!emails || emails.length == 0 || !courseMap[courseCode] || courseMap[courseCode].length == 0) {
+      console.info(`no emails to send in batch ${i + 1} -- courses: ${courseMap[courseCode]} -- emails: ${emails}`)
+      return
+    }
 
-    // Allows each email to be sent asynchronously but waits for all of them to be sent before the function finishes
-    emailPromises.push((async() => {
-      if (!emails || emails.length == 0 || !courseMap[courseCode] || courseMap[courseCode].length == 0) {
-        console.info(`no emails to send in batch ${i + 1} -- courses: ${courseMap[courseCode]} -- emails: ${emails}`)
-        return
-      }
-  
-      const courseDetailsHTML = formatCourseInfoHTML(courseCode, courseMap[courseCode])
-  
-      const response = await transporter.sendMail({
-        from: EMAIL_ADDR,
-        to: EMAIL_ADDR,
-        bcc: emails,
-        subject: `Your course selection info for ${courseCode}`,
-        html: fs.readFileSync(__dirname + '/templates/coursesAvailableEmail.html', 'utf8').replace('${INSERT_INFO_HERE}', courseDetailsHTML),
+    const courseDetailsHTML = formatCourseInfoHTML(courseCode, courseMap[courseCode])
+
+    const response = await transporter.sendMail({
+      from: EMAIL_ADDR,
+      to: EMAIL_ADDR,
+      bcc: emails,
+      subject: `Your course selection info for ${courseCode}`,
+      html: fs.readFileSync(__dirname + '/templates/coursesAvailableEmail.html', 'utf8').replace('${INSERT_INFO_HERE}', courseDetailsHTML),
+    })
+
+    // Filters out our email address from the response
+    response.accepted = response.accepted.filter(email => email != EMAIL_ADDR)
+    response.rejected = response.rejected.filter(email => email != EMAIL_ADDR)
+
+    console.warn(`batch ${i + 1} - failed emails`, response.rejected)
+    console.info(`batch ${i + 1} - successful emails`, response.accepted)
+
+    response.accepted.forEach((email) => {  
+      ddb.update({
+        TableName: 'Courses',
+        Key: { 'CourseCode': courseCode },
+        UpdateExpression: 'ADD #email :sentTimestamp',
+        ExpressionAttributeNames: {
+          '#email': email
+        },
+        ExpressionAttributeValues: {
+          ':sentTimestamp': ddb.createSet([new Date().setHours(0, 0, 0, 0)]),
+        }
+      }).promise().catch ((err) => {
+        console.error(`Error updating ${email} timestamp in dynamodb`, err)
       })
-
-      // Filters out our email address from the response
-      response.accepted = response.accepted.filter(email => email != EMAIL_ADDR)
-      response.rejected = response.rejected.filter(email => email != EMAIL_ADDR)
-  
-      console.warn(`batch ${i + 1} - failed emails`, response.rejected)
-      console.info(`batch ${i + 1} - successful emails`, response.accepted)
-  
-      response.accepted.forEach((email) => {  
-        ddb.update({
-          TableName: 'Courses',
-          Key: { 'CourseCode': courseCode },
-          UpdateExpression: 'ADD #email :sentTimestamp',
-          ExpressionAttributeNames: {
-            '#email': email
-          },
-          ExpressionAttributeValues: {
-            ':sentTimestamp': ddb.createSet([new Date().setHours(0, 0, 0, 0)]),
-          }
-        }).promise().catch ((err) => {
-          console.error(`Error updating ${email} timestamp in dynamodb`, err)
-        })
-      })
-    })())
-  })
-
-  await Promise.all(emailPromises)
+    })
+  }))
 }
 
 function formatCourseInfoHTML(courseCode, courseInfo) {
