@@ -79,7 +79,7 @@ app.post('/subscribe', [
   }
 
   // Ensures the app only uses data that has been validated
-  let validatedData = matchedData(req)
+  const validatedData = matchedData(req)
 
   // start an instance of the service
   updateCourseInfo(validatedData.courses, validatedData.email)
