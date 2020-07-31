@@ -100,8 +100,7 @@ async function updateCourseInfo(courses) {
       const courseKeys = Object.keys(availableCourseInfo)
       const courseCodeEmailMap = await getEmailsCourseCodesFromDyanmo(courseKeys)
 
-      await sendEmail(availableCourseInfo, courseCodeEmailMap)
-
+      sendEmail(availableCourseInfo, courseCodeEmailMap)
       await wait(msBetweenChecks)
     } catch (error) {
       console.log(error)
@@ -216,7 +215,16 @@ async function checkWebadvisor(courses) {
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
 
-  return availableCourseInfo
+  let openCourses = {}
+  Object.entries(availableCourseInfo).forEach(([key, val]) => {
+    if (!val.length) {
+      return
+    }
+
+    openCourses[key] = val
+  })
+
+  return openCourses
 }
 
 /**
@@ -269,19 +277,7 @@ async function sendEmail(courseMap, courseCodeEmailMap) {
     console.info(`batch ${i + 1} - successful emails`, response.accepted)
 
     response.accepted.forEach((email) => {  
-      ddb.update({
-        TableName: 'Courses',
-        Key: { 'CourseCode': courseCode },
-        UpdateExpression: 'ADD #email :sentTimestamp',
-        ExpressionAttributeNames: {
-          '#email': email
-        },
-        ExpressionAttributeValues: {
-          ':sentTimestamp': ddb.createSet([new Date().setHours(0, 0, 0, 0)]),
-        }
-      }).promise().catch ((err) => {
-        console.error(`Error updating ${email} timestamp in dynamodb`, err)
-      })
+      updateDynamoData(courseCode, email)        
     })
   }))
 }
@@ -302,50 +298,103 @@ function formatCourseInfoHTML(courseCode, courseInfo) {
  * is an array of emails to send the course to
  */
 async function getEmailsCourseCodesFromDyanmo(courseCodes) {
-  let coursesQuery = []
-
-  // Formats all the course codes for DynamoDB
-  courseCodes.forEach(cc => coursesQuery.push({
-    'CourseCode': cc
-  }))
-
   const CURRENT_DATE_UNIX = new Date().setHours(0, 0, 0, 0)
+
+  let dynamoData = await getDataFromDynamo(courseCodes)
+
+  if (!dynamoData) {
+    console.warn('No data from DynamoDB')
+    return {}
+  }
+
   let courseCodeEmailMap = {}
+  dynamoData.forEach((obj) => {
+    if (!validator.isEmail(obj.Email)) {
+      console.warn('Email is invalid', obj.Email)
+      return
+    }
 
-  try {
-    const responseData = await ddb.batchGet({
-      RequestItems: {
-        Courses: {
-          Keys: coursesQuery
-        }
+    if (!obj.LastNotificationDayTimestamp || CURRENT_DATE_UNIX - obj.LastNotificationDayTimestamp >= UNIX_DAY) {
+      if (!courseCodeEmailMap[obj.CourseCode]) {
+        courseCodeEmailMap[obj.CourseCode] = []
       }
-    }).promise()
 
-    responseData.Responses.Courses.forEach((courseData) => {
-      const courseCode = courseData.CourseCode
-      Object.entries(courseData).forEach(([key, val]) => {
-        if (!validator.isEmail(key)) {
-          // Filters out the DynamoDB metadata and non-email data (e.g the CourseCode)
-          console.info(`${key} is not an email`)
-          return
-        }
+      // Assigns the course to to the user's email if they haven't gotten an email today
+      courseCodeEmailMap[obj.CourseCode].push(obj.Email)
+    } else {
+      console.info(`Not sending an email to ${obj.Email} for ${obj.CourseCode} since their last email was sent at ${new Date(obj.LastNotificationDayTimestamp)}`)
+    }
+  })
 
-        const email = key
-        const lastEmailTimestamp = val.values[val.values.length-1]
+  return courseCodeEmailMap
+}
 
-        if (CURRENT_DATE_UNIX - lastEmailTimestamp >= UNIX_DAY) {
-          if (!courseCodeEmailMap[courseCode]) {
-            courseCodeEmailMap[courseCode] = []
-          }
+/**
+ * Retrieves subscriber data from DynamoDB and creates an object of course codes and emails for all users that should get a notification
+ * 
+ * @param {Array} courseCodes - Array of course codes to retrieve from DynamoDB
+ * @returns {Object} - Returns an array of objects from dynamoDB where each object contains
+ * a CourseCode, Email, and LastNotificationDayTimestamp
+ */
+async function getDataFromDynamo(courseCodes) {
+  try {
+    const dynamoData = await Promise.all(courseCodes.map(async cc => {
+      const responseData = await ddb.query({
+        TableName: 'Courses',
+        KeyConditionExpression: '#course_code = :course_code and begins_with(#email, :email)',
+        ExpressionAttributeNames: {
+          '#course_code': 'CourseCode',
+          '#email': 'Email'
+        },
+        ExpressionAttributeValues: {
+          ':course_code': cc,
+          ':email': 'email'
+        },
+        ProjectionExpression: [ 'CourseCode', 'Email', 'LastNotificationDayTimestamp' ]
+      }).promise()
 
-          // Assigns the course to to the user's email if they haven't gotten an email today
-          courseCodeEmailMap[courseCode].push(email)
-        }
-      })
+      return responseData.Count > 0 ? responseData.Items : undefined
+    }))
+    
+     // Filters out falsy data
+    return dynamoData.flat(1).filter(data => data).map((data) => {
+      data.Email = data.Email.substring('email#'.length)
+      return data
     })
   } catch (err) {
     console.error('error getting data from dynamodb', err)
   }
+}
 
-  return courseCodeEmailMap
+/**
+ * Asynchronously updates the last email timestamp and the list of all notification timestamps in DynamoDB for all the users notified via email
+ * 
+ * @param {String} courseCode 
+ * @param {String} email 
+ */
+async function updateDynamoData(courseCode, email) {
+  const currentTimeUnix = new Date()
+
+  try {
+    await ddb.update({
+      TableName: 'Courses',
+      Key: { 
+        'CourseCode': courseCode,
+        'Email': `email#${email}`
+      },
+      UpdateExpression: 'SET #NotificationTimestamps = list_append(#NotificationTimestamps, :sentTimestampList), #LastNotificationDayTimestamp = :sentTimestampDate',
+      ExpressionAttributeNames: {
+        '#NotificationTimestamps': 'NotificationTimestamps',
+        '#LastNotificationDayTimestamp': 'LastNotificationDayTimestamp'
+      },
+      ExpressionAttributeValues: {
+        ':sentTimestampList': [currentTimeUnix.getTime()],
+        ':sentTimestampDate': new Date().setHours(0, 0, 0, 0), // using a new date so the logged time is accurate
+      }
+    }).promise()
+
+    console.info(`Updated timestamp for ${courseCode} and ${email} to ${currentTimeUnix}`)
+  } catch (err) {
+    console.error(`Error updating the timestamp for ${courseCode} and ${email} in dynamodb`, err)
+  }
 }
