@@ -51,10 +51,6 @@ app.use(bodyParser.urlencoded({
   extended: false
 }))
 
-/********************************
- **** ROUTER CODE IS BROKEN *****
- *** UNTIL IT WRITES TO DYNAMO **
-/********************************/
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/templates/inputForm.html')
 })
@@ -64,13 +60,13 @@ app.post('/subscribe', [
   check('courses').isArray().custom(courses => {
     return courses.some(c => c)
   }).withMessage('At least one course must be selected').bail().customSanitizer(courses => {
-    return courses.map(c => _.trim(_.escape(c)))
+    return courses.map(c => _.trim(_.escape(c))).filter(c => c)
   }),
 
   // validates and normalizes the email from the client
   // For details on the email normalization see the normalizeEmail at https://github.com/validatorjs/validator.js#sanitizers
   check('email').isEmail().withMessage('Invalid Email').bail().trim().normalizeEmail(),
-], (req, res) => {
+], async (req, res) => {
   const formErrors = validationResult(req)
 
   if (!formErrors.isEmpty()) {
@@ -81,9 +77,12 @@ app.post('/subscribe', [
   // Ensures the app only uses data that has been validated
   const validatedData = matchedData(req)
 
-  // start an instance of the service
-  updateCourseInfo(validatedData.courses, validatedData.email)
-  return res.send('started a new process')
+  const savedData = await addToDynamoDB(validatedData.courses, validatedData.email)
+  if (!savedData) {
+    return res.status(500).send('Error saving the data')
+  }
+
+  return res.send('Added to the database')
 })
 
 // Runs the application with the constants defined above
@@ -276,8 +275,8 @@ async function sendEmail(courseMap, courseCodeEmailMap) {
     console.warn(`batch ${i + 1} - failed emails`, response.rejected)
     console.info(`batch ${i + 1} - successful emails`, response.accepted)
 
-    response.accepted.forEach((email) => {  
-      updateDynamoData(courseCode, email)        
+    response.accepted.forEach((email) => {
+      updateDynamoData(courseCode, email)
     })
   }))
 }
@@ -350,13 +349,13 @@ async function getDataFromDynamo(courseCodes) {
           ':course_code': cc,
           ':email': 'email'
         },
-        ProjectionExpression: [ 'CourseCode', 'Email', 'LastNotificationDayTimestamp' ]
+        ProjectionExpression: ['CourseCode', 'Email', 'LastNotificationDayTimestamp']
       }).promise()
 
       return responseData.Count > 0 ? responseData.Items : undefined
     }))
-    
-     // Filters out falsy data
+
+    // Filters out falsy data
     return dynamoData.flat(1).filter(data => data).map((data) => {
       data.Email = data.Email.substring('email#'.length)
       return data
@@ -378,16 +377,17 @@ async function updateDynamoData(courseCode, email) {
   try {
     await ddb.update({
       TableName: 'Courses',
-      Key: { 
+      Key: {
         'CourseCode': courseCode,
         'Email': `email#${email}`
       },
-      UpdateExpression: 'SET #NotificationTimestamps = list_append(#NotificationTimestamps, :sentTimestampList), #LastNotificationDayTimestamp = :sentTimestampDate',
+      UpdateExpression: 'SET #NotificationTimestamps = list_append(if_not_exists(#NotificationTimestamps, :emptyList), :sentTimestampList), #LastNotificationDayTimestamp = :sentTimestampDate',
       ExpressionAttributeNames: {
         '#NotificationTimestamps': 'NotificationTimestamps',
         '#LastNotificationDayTimestamp': 'LastNotificationDayTimestamp'
       },
       ExpressionAttributeValues: {
+        ':emptyList': [],
         ':sentTimestampList': [currentTimeUnix.getTime()],
         ':sentTimestampDate': new Date().setHours(0, 0, 0, 0), // using a new date so the logged time is accurate
       }
@@ -397,4 +397,42 @@ async function updateDynamoData(courseCode, email) {
   } catch (err) {
     console.error(`Error updating the timestamp for ${courseCode} and ${email} in dynamodb`, err)
   }
+}
+
+/**
+ * Adds the user with the course codes to DynamoDB
+ * 
+ * @param {String[]} courseCodes - The course codes to subscribe the user to
+ * @param {String} email - The email address to notify the user at
+ * @returns {Boolean} - True if the data was saved in dynamoDB and false if the data was not saved successfully
+ */
+async function addToDynamoDB(courseCodes, email) {
+  // Filters out the empty course codes from the array
+  const filteredCourseCodes = courseCodes.filter(cc => cc)
+
+  const itemsToWrite = filteredCourseCodes.map((cc) => {
+    return {
+      PutRequest: {
+        Item: {
+          CourseCode: cc,
+          Email: `email#${email}`
+        }
+      }
+    }
+  })
+
+  try {
+    await ddb.batchWrite({
+      RequestItems: {
+        Courses: itemsToWrite
+      }
+    }).promise()
+
+    console.info(`Saved the course codes (${filteredCourseCodes}) and email (${email}) to DynamoDB`)
+  } catch (err) {
+    console.error(`error writing course codes (${filteredCourseCodes}) and email (${email}) to DynamoDB - `, err)
+    return false
+  }
+
+  return true
 }
