@@ -109,9 +109,7 @@ async function updateCourseInfo(courses) {
 }
 
 async function checkWebadvisor(courses) {
-  const browser = await puppeteer.launch({
-    headless
-  })
+  const browser = await puppeteer.launch({ headless })
 
   const page = await browser.newPage()
 
@@ -139,78 +137,53 @@ async function checkWebadvisor(courses) {
   // Fill out Search for Sections
   await Promise.all([
     page.select('#VAR1', courseSemester),
-    ...courses
-    .map((course, i) => {
-      const row = i + 1
-      const [courseSubject, courseCode] = course.split('*')
-      return [
-        page.select(`#LIST_VAR1_${row}`, courseSubject),
-        page.evaluate(
-          (courseCode, row) => {
-            const courseCodeInput = document.querySelector(`#LIST_VAR3_${row}`)
-            courseCodeInput.value = courseCode
-          },
-          courseCode,
-          row
-        ),
-      ]
+    [0, 1, 2, 3, 4, 5, 6]
+    .map((num) => {
+      return page.click(`#VAR${num+10}`)
     })
-    .flat(),
   ])
 
   await Promise.all([
     page.click('#content > div.screen.WESTS12A > form > div > input'),
     page.waitForNavigation({
-      waitUntil: 'networkidle0'
+      waitUntil: 'networkidle0',
+      timeout: 0
     }),
   ])
 
+  // await wait(msBetweenChecks)
   // Determine if offering is open - evaluated in browser
-  const availableCourseInfo = await page.evaluate((courses) => {
+  const availableCourseInfo = await page.evaluate(() => {
     const offerings = document.querySelectorAll('#GROUP_Grp_WSS_COURSE_SECTIONS > table > tbody > tr')
 
     // generate base course map Ex. { 'CIS*1234': [] } cant use ES6 :(
     const courseMap = {}
-    courses.forEach((course) => (courseMap[course] = []))
 
     offerings.forEach((row, index) => {
       // First two rows are just headings
       if (index < 2) return
 
-      Object.keys(courseMap).forEach((courseKey) => {
-        // Look for a course row that doesn't have the closed styles
-        if (!row.className && row.className !== 'closed') {
-          if (row.innerText.includes(courseKey)) {
-            // parse columns into array for easy access
-            const splitCourseRow = row.innerText
-              .split('\n\n')
-              .map((s) => s.trim())
-              .filter((s) => s.length)
+      const splitCourseRow = row.innerText
+        .split('\n\n')
+        .map((s) => s.trim())
+        .filter((s) => s.length)
 
-            // add available course info to course map
-            courseMap[courseKey].push(splitCourseRow)
-          }
-        }
-      })
+      // Parses out the course code in the format XXX*1111
+      // Note: There should only be one course code
+      const courseCode = splitCourseRow[2].match(/[A-Za-z]+\*[0-9]+/)[0]
+
+      if (!courseMap[courseCode]) {
+        courseMap[courseCode] = []
+      }
+
+      courseMap[courseCode].push(splitCourseRow)
     })
 
     return courseMap
-  }, courses)
+  })
 
   // log time
   console.log(`\nTIME: ${new Date().toLocaleString('en-US', { hour: 'numeric', minute: 'numeric', hour12: true })}`)
-
-  // check and log open/full sections
-  Object.keys(availableCourseInfo).forEach((courseKey) => {
-    const openSections = availableCourseInfo[courseKey]
-    if (openSections.length) {
-      exec(`say "${courseKey} has available sections"`)
-      // todo: can display the open sections in a nicer format
-      console.log('\x1b[32m', `\n${courseKey} HAS AVAILABLE SECTIONS`, JSON.stringify(openSections))
-    } else {
-      console.log('\x1b[31m', `\n${courseKey} DOES NOT HAVE AVAILABLE SECTIONS`)
-    }
-  })
 
   console.log('\x1b[37m', '\nAYO, THREAD CHECK\n')
   await browser.close()
@@ -337,6 +310,7 @@ async function getEmailsCourseCodesFromDyanmo(courseCodes) {
  * a CourseCode, Email, and LastNotificationTimestamp
  */
 async function getDataFromDynamo(courseCodes) {
+  console.warn('num courses', courseCodes.length)
   try {
     const dynamoData = await Promise.all(courseCodes.map(async cc => {
       const responseData = await ddb.query({
