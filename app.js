@@ -151,7 +151,6 @@ async function checkWebadvisor(courses) {
     }),
   ])
 
-  // await wait(msBetweenChecks)
   // Determine if offering is open - evaluated in browser
   const availableCourseInfo = await page.evaluate(() => {
     const offerings = document.querySelectorAll('#GROUP_Grp_WSS_COURSE_SECTIONS > table > tbody > tr')
@@ -159,9 +158,12 @@ async function checkWebadvisor(courses) {
     // generate base course map Ex. { 'CIS*1234': [] } cant use ES6 :(
     const courseMap = {}
 
+    // TODO: See why this is inconsistent and why it almost gets all the classes (837/840)
     offerings.forEach((row, index) => {
       // First two rows are just headings
-      if (index < 2) return
+      if (index < 2) return 
+      // Ignores any classes that are full
+      else if (row.className === 'closed') return
 
       const splitCourseRow = row.innerText
         .split('\n\n')
@@ -311,6 +313,8 @@ async function getEmailsCourseCodesFromDyanmo(courseCodes) {
  */
 async function getDataFromDynamo(courseCodes) {
   console.warn('num courses', courseCodes.length)
+  console.warn('courses', courseCodes)
+  console.warn(`courses: ${courseCodes}`)
   try {
     const dynamoData = await Promise.all(courseCodes.map(async cc => {
       const responseData = await ddb.query({
@@ -356,12 +360,13 @@ async function updateDynamoData(courseCode, email) {
         'CourseCode': courseCode,
         'Email': `email#${email}`
       },
-      UpdateExpression: 'SET #NotificationTimestamps = list_append(#NotificationTimestamps, :sentTimestampList), #LastNotificationDayTimestamp = :sentTimestampDate',
+      UpdateExpression: 'SET #NotificationTimestamps = list_append(if_not_exists(#NotificationTimestamps, :emptyList), :sentTimestampList), #LastNotificationDayTimestamp = :sentTimestampDate',
       ExpressionAttributeNames: {
         '#NotificationTimestamps': 'NotificationTimestamps',
         '#LastNotificationDayTimestamp': 'LastNotificationDayTimestamp'
       },
       ExpressionAttributeValues: {
+        ':emptyList': [],
         ':sentTimestampList': [currentTimeUnix.getTime()],
         ':sentTimestampDate': new Date().setHours(0, 0, 0, 0), // using a new date so the logged time is accurate
       }
