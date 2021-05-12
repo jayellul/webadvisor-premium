@@ -22,7 +22,7 @@
     "cheerio": "^1.0.0-rc.3",
     "dotenv": "^8.2.0",
     "express": "^4.17.1",
-    "nodemailer": "^6.4.10",
+    "nodemailer": "^6.4.16",
     "express-validator": "^6.6.0",
     "lodash": "^4.17.19",
     "puppeteer": "^5.1.0",
